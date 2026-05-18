@@ -1,25 +1,26 @@
 const WebSocket = require('ws');
 
+// Port configure karein Render environment ke liye
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
+// Server-side Game State memory storage
 let gameState = {
   calledNumbers: [],
-  currentNumber: 0,
-  reset: false
+  currentNumber: 0
 };
 
 wss.on('connection', (ws) => {
-  console.log('New client connected');
+  console.log('New client connected successfully');
 
-  // FIXED: Naya client connect hone par hum 'currentNumber' ko hamesha 0 bhejenge
-  // Is se Viewer app open karte hi beech ka circle ekdum khali (Blank) rahega!
+  // FIXED INITIAL HANDSHAKE:
+  // Jab naya Viewer connect hoga, toh hum 'currentNumber' ko hamesha 0 (khali) bhejenge.
+  // Is se Viewer open karte hi screen par direct purana number flash hona band ho jayega!
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: {
       calledNumbers: gameState.calledNumbers,
-      currentNumber: 0, // <--- Yeh line automatic direct dikhana band kar degi!
-      reset: gameState.reset
+      currentNumber: 0 
     }
   }));
 
@@ -27,35 +28,39 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      // Dono apps se aane wale data ko accept karo
-      if (data.type === 'GENERATE' || data.type === 'GENERATE_FINAL' || data.type === 'CONTROLLER_NUMBER') {
+      // STRICT ACTION CHECK:
+      // Server sirf tabhi reaction dega jab click CONFIRMED hoga (Generate button press hoga)
+      if (data.type === 'GENERATE' || data.type === 'CONFIRMED_GENERATION') {
         const num = data.number;
         
+        // Memory list state backup check
         if (!gameState.calledNumbers.includes(num)) {
           gameState.calledNumbers.push(num);
         }
         gameState.currentNumber = num;
 
-        // Jab sahi me click hoga, tabhi naya update broadcast hoga
+        // Pure network par sirf authenticated 'SERVER_REAL_TIME_CALL' token broadcast hoga
         broadcast({
-          type: 'GENERATE_FINAL', 
+          type: 'SERVER_REAL_TIME_CALL', 
           number: num,
           calledNumbers: gameState.calledNumbers
         });
 
       } else if (data.type === 'RESET') {
-        gameState = { calledNumbers: [], currentNumber: 0, reset: true };
+        // Full Reset execution clear stack
+        gameState = { calledNumbers: [], currentNumber: 0 };
         broadcast({ type: 'RESET' });
       }
 
     } catch (e) {
-      console.error('Error handling message:', e);
+      console.error('Error processing network payload:', e);
     }
   });
 
-  ws.on('close', () => console.log('Client disconnected'));
+  ws.on('close', () => console.log('Client disconnected from server'));
 });
 
+// Broadcast function global network distribution ke liye
 function broadcast(data) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
@@ -65,4 +70,4 @@ function broadcast(data) {
   });
 }
 
-console.log(`Housie WebSocket Server running on port ${PORT}`);
+console.log(`Housie Micro-Server running on port ${PORT}`);
