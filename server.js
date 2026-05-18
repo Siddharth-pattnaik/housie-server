@@ -1,45 +1,41 @@
 const WebSocket = require('ws');
 
-// Port configure karein Render environment ke liye
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
-// Server-side Game State memory storage
+// State ko clear rakhein
 let gameState = {
   calledNumbers: [],
   currentNumber: 0
 };
 
 wss.on('connection', (ws) => {
-  console.log('New client connected successfully');
+  console.log('--- NEW CLIENT CONNECTED ---');
 
-  // FIXED INITIAL HANDSHAKE:
-  // Jab naya Viewer connect hoga, toh hum 'currentNumber' ko hamesha 0 (khali) bhejenge.
-  // Is se Viewer open karte hi screen par direct purana number flash hona band ho jayega!
+  // INIT ke waqt hum currentNumber ko strictly 0 bhej rahe hain taaki direct flash na ho
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: {
       calledNumbers: gameState.calledNumbers,
-      currentNumber: 0 
+      currentNumber: 0
     }
   }));
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+      console.log(`[RECEIVED EVENT]: Type = ${data.type}, Number = ${data.number}`);
 
-      // STRICT ACTION CHECK:
-      // Server sirf tabhi reaction dega jab click CONFIRMED hoga (Generate button press hoga)
+      // Sirf actual button press hone par hi forward hoga
       if (data.type === 'GENERATE' || data.type === 'CONFIRMED_GENERATION') {
         const num = data.number;
         
-        // Memory list state backup check
         if (!gameState.calledNumbers.includes(num)) {
           gameState.calledNumbers.push(num);
         }
         gameState.currentNumber = num;
 
-        // Pure network par sirf authenticated 'SERVER_REAL_TIME_CALL' token broadcast hoga
+        console.log(`[BROADCASTING]: Sending SERVER_REAL_TIME_CALL for Number ${num}`);
         broadcast({
           type: 'SERVER_REAL_TIME_CALL', 
           number: num,
@@ -47,20 +43,19 @@ wss.on('connection', (ws) => {
         });
 
       } else if (data.type === 'RESET') {
-        // Full Reset execution clear stack
+        console.log('--- GAME RESET TRIGGERED ---');
         gameState = { calledNumbers: [], currentNumber: 0 };
         broadcast({ type: 'RESET' });
       }
 
     } catch (e) {
-      console.error('Error processing network payload:', e);
+      console.error('Error:', e);
     }
   });
 
-  ws.on('close', () => console.log('Client disconnected from server'));
+  ws.on('close', () => console.log('Client disconnected'));
 });
 
-// Broadcast function global network distribution ke liye
 function broadcast(data) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
@@ -70,4 +65,4 @@ function broadcast(data) {
   });
 }
 
-console.log(`Housie Micro-Server running on port ${PORT}`);
+console.log(`Housie Server running on port ${PORT}`);
