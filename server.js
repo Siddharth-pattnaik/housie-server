@@ -12,7 +12,7 @@ let gameState = {
 wss.on('connection', (ws) => {
   console.log('New client connected');
 
-  // Naya client connect hone pe current state bhejo
+  // Naya client connect hone pe current state sync bhejo
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: gameState
@@ -22,17 +22,20 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      if (data.type === 'GENERATE' || data.type === 'CONTROLLER_NUMBER') {
-        // Number called — state update karo
+      // FIXED: 'CONTROLLER_NUMBER' hata kar ab yahan 'GENERATE_FINAL' map kiya hai
+      if (data.type === 'GENERATE' || data.type === 'GENERATE_FINAL') {
         const num = data.number;
+        
+        // Number check karke state update karo
         if (!gameState.calledNumbers.includes(num)) {
           gameState.calledNumbers.push(num);
         }
         gameState.currentNumber = num;
 
-        // Saare clients ko broadcast karo
+        // Saare clients ko broadcast karo (Housie rules dynamic broadcast)
+        // Note: Controller aur Viewer dono is 'GENERATE_FINAL' ko accept karenge aur red mark karenge
         broadcast({
-          type: 'NUMBER_CALLED',
+          type: 'GENERATE_FINAL', 
           number: num,
           calledNumbers: gameState.calledNumbers
         });
@@ -43,7 +46,7 @@ wss.on('connection', (ws) => {
       }
 
     } catch (e) {
-      console.error('Error:', e);
+      console.error('Error handling message:', e);
     }
   });
 
@@ -54,6 +57,7 @@ function broadcast(data) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
+      
       client.send(msg);
     }
   });
