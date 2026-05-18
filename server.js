@@ -8,7 +8,10 @@ let gameState = {
   currentNumber: 0
 };
 
-// Bache huye numbers ka pool nikalne ke liye
+// CONTROLLER KA NUMBER HOLD KARNE KE LIYE WAITING ROOM (BUFFER)
+let pendingControllerNumber = null;
+
+// 1 se 90 tak ke bache huye random numbers ka backup pool
 function generateRemainingPool() {
   let pool = [];
   for (let i = 1; i <= 90; i++) {
@@ -20,9 +23,9 @@ function generateRemainingPool() {
 }
 
 wss.on('connection', (ws) => {
-  console.log('Device connected successfully');
+  console.log('New device paired');
 
-  // Initial Sync: Naye connection par board sync hoga par center empty rahega
+  // Initial setup board sync ke liye (Center empty)
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: {
@@ -35,50 +38,63 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      // CASE 1: Sirf jab Viewer ka GENERATE button click hoga, tabhi naya number banega
-      if (data.type === 'GENERATE') {
-        let remainingPool = generateRemainingPool();
-        if (remainingPool.length === 0) return;
-
-        const randomIndex = Math.floor(Math.random() * remainingPool.length);
-        const chosenNumber = remainingPool[randomIndex];
-
-        gameState.calledNumbers.push(chosenNumber);
-        gameState.currentNumber = chosenNumber;
-
-        // Dono apps ko pata chalega ki VIEWER NE CLICK KIYA HAI aur naya number aaya hai
-        broadcast({
-          type: 'NUMBER_GENERATED_BY_VIEWER',
-          number: chosenNumber,
-          calledNumbers: gameState.calledNumbers
-        });
+      // STEP 1: Controller ne number enter kiya
+      if (data.type === 'GENERATE_FINAL') {
+        const num = parseInt(data.number);
+        if (num > 0 && num <= 90 && !gameState.calledNumbers.includes(num)) {
+          // STRICT RULE: Chupchaap server par hold karo, kisi ko broadcast mat karo!
+          pendingControllerNumber = num; 
+          console.log(`Controller locked number: ${num}. Waiting for Viewer to click Generate.`);
+          
+          // Controller app ko local confirmation bhej do ki number lock ho gaya hai
+          ws.send(JSON.stringify({
+            type: 'CONTROLLER_ACK',
+            number: num
+          }));
+        }
       } 
       
-      // CASE 2: Controller se aane wala data (Sirf grid updates ke liye, center circle ke liye nahi)
-      else if (data.type === 'GENERATE_FINAL') {
-        const num = parseInt(data.number);
-        if (num > 0 && num <= 90) {
-          if (!gameState.calledNumbers.includes(num)) {
-            gameState.calledNumbers.push(num);
-          }
-          // Note: Hum gameState.currentNumber ko Controller ke data se update nahi kar rahe hain!
+      // STEP 2: Viewer ne GENERATE button click kiya
+      else if (data.type === 'GENERATE') {
+        let chosenNumber = 0;
+
+        // Agar Controller ne pehle se koi number lock karke rakha hai, toh wahi uthao
+        if (pendingControllerNumber !== null) {
+          chosenNumber = pendingControllerNumber;
+          pendingControllerNumber = null; // Use hone ke baad waiting room khali
+        } 
+        // Agar Controller ne koi number enter nahi kiya hai, toh system khud random generate karega
+        else {
+          let remainingPool = generateRemainingPool();
+          if (remainingPool.length === 0) return;
+          const randomIndex = Math.floor(Math.random() * remainingPool.length);
+          chosenNumber = remainingPool[randomIndex];
+        }
+
+        if (chosenNumber > 0 && !gameState.calledNumbers.includes(chosenNumber)) {
+          gameState.calledNumbers.push(chosenNumber);
+          gameState.currentNumber = chosenNumber;
+
+          console.log(`Viewer triggered generation. Displaying Number: ${chosenNumber}`);
           
+          // AB DONO SCREENS PAR UTARega NUMBER
           broadcast({
-            type: 'CONTROLLER_GRID_SYNC',
-            number: num,
+            type: 'SERVER_REAL_TIME_CALL',
+            number: chosenNumber,
             calledNumbers: gameState.calledNumbers
           });
         }
       } 
       
-      // CASE 3: Reset game
+      // STEP 3: Reset game
       else if (data.type === 'RESET') {
         gameState = { calledNumbers: [], currentNumber: 0 };
+        pendingControllerNumber = null;
         broadcast({ type: 'RESET' });
       }
 
     } catch (e) {
-      console.error('Error handling message:', e);
+      console.error('Payload Error:', e);
     }
   });
 
@@ -94,4 +110,4 @@ function broadcast(data) {
   });
 }
 
-console.log(`Housie Engine working fine on port ${PORT}`);
+console.log(`Housie Waiting-Queue Engine live on port ${PORT}`);
