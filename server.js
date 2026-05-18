@@ -8,7 +8,7 @@ let gameState = {
   currentNumber: 0
 };
 
-// 1 se 90 tak ki shuffle list generate karne ka helper function
+// 1 se 90 tak ke bache huye numbers nikalne ke liye
 function generateRemainingPool() {
   let pool = [];
   for (let i = 1; i <= 90; i++) {
@@ -20,9 +20,9 @@ function generateRemainingPool() {
 }
 
 wss.on('connection', (ws) => {
-  console.log('Client synced successfully');
+  console.log('New device connected to Housie Server');
 
-  // Connection par direct number display zero block rakhein
+  // Strict initial handshake: App open hote hi center circle 0 (Blank) rahega
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: {
@@ -34,38 +34,52 @@ wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+      console.log(`Received payload event type: ${data.type}`);
 
-      // Centralized Generation Logic: Chahe Viewer dbae ya Controller, Server random choice karega!
-      if (data.type === 'GENERATE' || data.type === 'CONFIRMED_GENERATION') {
-        let remainingPool = generateRemainingPool();
+      // FIXED CONDITION MATCHING FOR BOTH CLIENTS
+      if (data.type === 'GENERATE' || data.type === 'GENERATE_FINAL') {
+        let chosenNumber = 0;
 
-        if (remainingPool.length === 0) {
-          return; // Saare numbers khatam ho chuke hain
+        // Case A: Controller ne manually board se select karke bheja hai
+        if (data.number && data.number > 0) {
+          chosenNumber = parseInt(data.number);
+        } 
+        // Case B: Viewer ne direct generation request bheji hai (Random pool)
+        else {
+          let remainingPool = generateRemainingPool();
+          if (remainingPool.length === 0) return;
+          const randomIndex = Math.floor(Math.random() * remainingPool.length);
+          chosenNumber = remainingPool[randomIndex];
         }
 
-        // Server khud real random index select karega
-        const randomIndex = Math.floor(Math.random() * remainingPool.length);
-        const chosenNumber = remainingPool[randomIndex];
+        if (chosenNumber > 0 && chosenNumber <= 90) {
+          if (!gameState.calledNumbers.includes(chosenNumber)) {
+            gameState.calledNumbers.push(chosenNumber);
+          }
+          gameState.currentNumber = chosenNumber;
 
-        gameState.calledNumbers.push(chosenNumber);
-        gameState.currentNumber = chosenNumber;
-
-        // Ab poore network par state instantly update hogi
-        broadcast({
-          type: 'SERVER_REAL_TIME_CALL', 
-          number: chosenNumber,
-          calledNumbers: gameState.calledNumbers
-        });
+          console.log(`Broadcasting Confirmed Number: ${chosenNumber}`);
+          
+          // Dono devices ko central signal broadcast karo
+          broadcast({
+            type: 'SERVER_REAL_TIME_CALL',
+            number: chosenNumber,
+            calledNumbers: gameState.calledNumbers
+          });
+        }
 
       } else if (data.type === 'RESET') {
+        console.log('Game state fully wiped out');
         gameState = { calledNumbers: [], currentNumber: 0 };
         broadcast({ type: 'RESET' });
       }
 
     } catch (e) {
-      console.error('Error:', e);
+      console.error('Payload processing crashed:', e);
     }
   });
+
+  ws.on('close', () => console.log('Device disconnected'));
 });
 
 function broadcast(data) {
@@ -77,4 +91,4 @@ function broadcast(data) {
   });
 }
 
-console.log(`Centralized Housie Server running on port ${PORT}`);
+console.log(`Housie Micro-Engine running strictly on port ${PORT}`);
