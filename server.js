@@ -8,24 +8,13 @@ let gameState = {
   currentNumber: 0
 };
 
-// CONTROLLER KA NUMBER HOLD KARNE KE LIYE WAITING ROOM (BUFFER)
+// Controller ka number hold karne ke liye central cache reference buffer
 let pendingControllerNumber = null;
 
-// 1 se 90 tak ke bache huye random numbers ka backup pool
-function generateRemainingPool() {
-  let pool = [];
-  for (let i = 1; i <= 90; i++) {
-    if (!gameState.calledNumbers.includes(i)) {
-      pool.push(i);
-    }
-  }
-  return pool;
-}
-
 wss.on('connection', (ws) => {
-  console.log('New device paired');
+  console.log('Device paired successfully');
 
-  // Initial setup board sync ke liye (Center empty)
+  // Initial deep block: startup screen clear out locked
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: {
@@ -38,15 +27,13 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      // STEP 1: Controller ne number enter kiya
+      // STEP 1: Controller inputs processing
       if (data.type === 'GENERATE_FINAL') {
         const num = parseInt(data.number);
         if (num > 0 && num <= 90 && !gameState.calledNumbers.includes(num)) {
-          // STRICT RULE: Chupchaap server par hold karo, kisi ko broadcast mat karo!
           pendingControllerNumber = num; 
-          console.log(`Controller locked number: ${num}. Waiting for Viewer to click Generate.`);
+          console.log(`Controller buffer locked number: ${num}`);
           
-          // Controller app ko local confirmation bhej do ki number lock ho gaya hai
           ws.send(JSON.stringify({
             type: 'CONTROLLER_ACK',
             number: num
@@ -54,30 +41,24 @@ wss.on('connection', (ws) => {
         }
       } 
       
-      // STEP 2: Viewer ne GENERATE button click kiya
+      // STEP 2: Viewer action interceptor execution
       else if (data.type === 'GENERATE') {
         let chosenNumber = 0;
 
-        // Agar Controller ne pehle se koi number lock karke rakha hai, toh wahi uthao
+        // Priority validation routing: Pehle check karo buffer me koi selection pending hai ya nahi
         if (pendingControllerNumber !== null) {
           chosenNumber = pendingControllerNumber;
-          pendingControllerNumber = null; // Use hone ke baad waiting room khali
-        } 
-        // Agar Controller ne koi number enter nahi kiya hai, toh system khud random generate karega
-        else {
-          let remainingPool = generateRemainingPool();
-          if (remainingPool.length === 0) return;
-          const randomIndex = Math.floor(Math.random() * remainingPool.length);
-          chosenNumber = remainingPool[randomIndex];
+          pendingControllerNumber = null; // Flush cache pointer instantly
+        } else {
+          // Agar queue empty hai toh Viewer ka apna payload handle karo
+          chosenNumber = parseInt(data.number);
         }
 
-        if (chosenNumber > 0 && !gameState.calledNumbers.includes(chosenNumber)) {
+        if (chosenNumber > 0 && chosenNumber <= 90 && !gameState.calledNumbers.includes(chosenNumber)) {
           gameState.calledNumbers.push(chosenNumber);
           gameState.currentNumber = chosenNumber;
 
-          console.log(`Viewer triggered generation. Displaying Number: ${chosenNumber}`);
-          
-          // AB DONO SCREENS PAR UTARega NUMBER
+          console.log(`Broadcasting Confirmed Action: ${chosenNumber}`);
           broadcast({
             type: 'SERVER_REAL_TIME_CALL',
             number: chosenNumber,
@@ -86,7 +67,7 @@ wss.on('connection', (ws) => {
         }
       } 
       
-      // STEP 3: Reset game
+      // STEP 3: Reset system execution
       else if (data.type === 'RESET') {
         gameState = { calledNumbers: [], currentNumber: 0 };
         pendingControllerNumber = null;
@@ -94,20 +75,16 @@ wss.on('connection', (ws) => {
       }
 
     } catch (e) {
-      console.error('Payload Error:', e);
+      console.error(e);
     }
   });
-
-  ws.on('close', () => console.log('Device disconnected'));
 });
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
-    }
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
   });
 }
 
-console.log(`Housie Waiting-Queue Engine live on port ${PORT}`);
+console.log(`Queue Server listening on port ${PORT}`);
