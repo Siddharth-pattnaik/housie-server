@@ -3,16 +3,26 @@ const WebSocket = require('ws');
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
-// State ko clear rakhein
 let gameState = {
   calledNumbers: [],
   currentNumber: 0
 };
 
-wss.on('connection', (ws) => {
-  console.log('--- NEW CLIENT CONNECTED ---');
+// 1 se 90 tak ki shuffle list generate karne ka helper function
+function generateRemainingPool() {
+  let pool = [];
+  for (let i = 1; i <= 90; i++) {
+    if (!gameState.calledNumbers.includes(i)) {
+      pool.push(i);
+    }
+  }
+  return pool;
+}
 
-  // INIT ke waqt hum currentNumber ko strictly 0 bhej rahe hain taaki direct flash na ho
+wss.on('connection', (ws) => {
+  console.log('Client synced successfully');
+
+  // Connection par direct number display zero block rakhein
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: {
@@ -24,26 +34,30 @@ wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(`[RECEIVED EVENT]: Type = ${data.type}, Number = ${data.number}`);
 
-      // Sirf actual button press hone par hi forward hoga
+      // Centralized Generation Logic: Chahe Viewer dbae ya Controller, Server random choice karega!
       if (data.type === 'GENERATE' || data.type === 'CONFIRMED_GENERATION') {
-        const num = data.number;
-        
-        if (!gameState.calledNumbers.includes(num)) {
-          gameState.calledNumbers.push(num);
-        }
-        gameState.currentNumber = num;
+        let remainingPool = generateRemainingPool();
 
-        console.log(`[BROADCASTING]: Sending SERVER_REAL_TIME_CALL for Number ${num}`);
+        if (remainingPool.length === 0) {
+          return; // Saare numbers khatam ho chuke hain
+        }
+
+        // Server khud real random index select karega
+        const randomIndex = Math.floor(Math.random() * remainingPool.length);
+        const chosenNumber = remainingPool[randomIndex];
+
+        gameState.calledNumbers.push(chosenNumber);
+        gameState.currentNumber = chosenNumber;
+
+        // Ab poore network par state instantly update hogi
         broadcast({
           type: 'SERVER_REAL_TIME_CALL', 
-          number: num,
+          number: chosenNumber,
           calledNumbers: gameState.calledNumbers
         });
 
       } else if (data.type === 'RESET') {
-        console.log('--- GAME RESET TRIGGERED ---');
         gameState = { calledNumbers: [], currentNumber: 0 };
         broadcast({ type: 'RESET' });
       }
@@ -52,8 +66,6 @@ wss.on('connection', (ws) => {
       console.error('Error:', e);
     }
   });
-
-  ws.on('close', () => console.log('Client disconnected'));
 });
 
 function broadcast(data) {
@@ -65,4 +77,4 @@ function broadcast(data) {
   });
 }
 
-console.log(`Housie Server running on port ${PORT}`);
+console.log(`Centralized Housie Server running on port ${PORT}`);
