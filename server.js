@@ -12,18 +12,23 @@ let gameState = {
 wss.on('connection', (ws) => {
   console.log('New client connected');
 
-  // Naya client connect hone pe current state sync bhejo
+  // FIXED: Naya client connect hone par hum 'currentNumber' ko hamesha 0 bhejenge
+  // Is se Viewer app open karte hi beech ka circle ekdum khali (Blank) rahega!
   ws.send(JSON.stringify({
     type: 'INIT',
-    payload: gameState
+    payload: {
+      calledNumbers: gameState.calledNumbers,
+      currentNumber: 0, // <--- Yeh line automatic direct dikhana band kar degi!
+      reset: gameState.reset
+    }
   }));
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
 
-      // FIXED: 'GENERATE_FINAL' ko accept karne ke liye update kiya hai
-      if (data.type === 'GENERATE' || data.type === 'GENERATE_FINAL') {
+      // Dono apps se aane wale data ko accept karo
+      if (data.type === 'GENERATE' || data.type === 'GENERATE_FINAL' || data.type === 'CONTROLLER_NUMBER') {
         const num = data.number;
         
         if (!gameState.calledNumbers.includes(num)) {
@@ -31,7 +36,7 @@ wss.on('connection', (ws) => {
         }
         gameState.currentNumber = num;
 
-        // Saare clients ko broadcast karo
+        // Jab sahi me click hoga, tabhi naya update broadcast hoga
         broadcast({
           type: 'GENERATE_FINAL', 
           number: num,
