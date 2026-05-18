@@ -8,7 +8,7 @@ let gameState = {
   currentNumber: 0
 };
 
-// 1 se 90 tak ke bache huye numbers nikalne ke liye
+// Bache huye numbers ka pool nikalne ke liye
 function generateRemainingPool() {
   let pool = [];
   for (let i = 1; i <= 90; i++) {
@@ -20,9 +20,9 @@ function generateRemainingPool() {
 }
 
 wss.on('connection', (ws) => {
-  console.log('New device connected to Housie Server');
+  console.log('Device connected successfully');
 
-  // Strict initial handshake: App open hote hi center circle 0 (Blank) rahega
+  // Initial Sync: Naye connection par board sync hoga par center empty rahega
   ws.send(JSON.stringify({
     type: 'INIT',
     payload: {
@@ -34,48 +34,51 @@ wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(`Received payload event type: ${data.type}`);
 
-      // FIXED CONDITION MATCHING FOR BOTH CLIENTS
-      if (data.type === 'GENERATE' || data.type === 'GENERATE_FINAL') {
-        let chosenNumber = 0;
+      // CASE 1: Sirf jab Viewer ka GENERATE button click hoga, tabhi naya number banega
+      if (data.type === 'GENERATE') {
+        let remainingPool = generateRemainingPool();
+        if (remainingPool.length === 0) return;
 
-        // Case A: Controller ne manually board se select karke bheja hai
-        if (data.number && data.number > 0) {
-          chosenNumber = parseInt(data.number);
-        } 
-        // Case B: Viewer ne direct generation request bheji hai (Random pool)
-        else {
-          let remainingPool = generateRemainingPool();
-          if (remainingPool.length === 0) return;
-          const randomIndex = Math.floor(Math.random() * remainingPool.length);
-          chosenNumber = remainingPool[randomIndex];
-        }
+        const randomIndex = Math.floor(Math.random() * remainingPool.length);
+        const chosenNumber = remainingPool[randomIndex];
 
-        if (chosenNumber > 0 && chosenNumber <= 90) {
-          if (!gameState.calledNumbers.includes(chosenNumber)) {
-            gameState.calledNumbers.push(chosenNumber);
+        gameState.calledNumbers.push(chosenNumber);
+        gameState.currentNumber = chosenNumber;
+
+        // Dono apps ko pata chalega ki VIEWER NE CLICK KIYA HAI aur naya number aaya hai
+        broadcast({
+          type: 'NUMBER_GENERATED_BY_VIEWER',
+          number: chosenNumber,
+          calledNumbers: gameState.calledNumbers
+        });
+      } 
+      
+      // CASE 2: Controller se aane wala data (Sirf grid updates ke liye, center circle ke liye nahi)
+      else if (data.type === 'GENERATE_FINAL') {
+        const num = parseInt(data.number);
+        if (num > 0 && num <= 90) {
+          if (!gameState.calledNumbers.includes(num)) {
+            gameState.calledNumbers.push(num);
           }
-          gameState.currentNumber = chosenNumber;
-
-          console.log(`Broadcasting Confirmed Number: ${chosenNumber}`);
+          // Note: Hum gameState.currentNumber ko Controller ke data se update nahi kar rahe hain!
           
-          // Dono devices ko central signal broadcast karo
           broadcast({
-            type: 'SERVER_REAL_TIME_CALL',
-            number: chosenNumber,
+            type: 'CONTROLLER_GRID_SYNC',
+            number: num,
             calledNumbers: gameState.calledNumbers
           });
         }
-
-      } else if (data.type === 'RESET') {
-        console.log('Game state fully wiped out');
+      } 
+      
+      // CASE 3: Reset game
+      else if (data.type === 'RESET') {
         gameState = { calledNumbers: [], currentNumber: 0 };
         broadcast({ type: 'RESET' });
       }
 
     } catch (e) {
-      console.error('Payload processing crashed:', e);
+      console.error('Error handling message:', e);
     }
   });
 
@@ -91,4 +94,4 @@ function broadcast(data) {
   });
 }
 
-console.log(`Housie Micro-Engine running strictly on port ${PORT}`);
+console.log(`Housie Engine working fine on port ${PORT}`);
